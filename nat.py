@@ -1,69 +1,61 @@
-import os
+import sys
 import subprocess
 
-class ChainNotFoundError(Exception):pass
-
-def get_cluster_chain(cluster_ip, cluster_port):
-    svc_rules = subprocess.check_output(
-        'sudo iptables -t nat -S | grep "KUBE-SERVICES -d {}/32"'.format(
-            cluster_ip),
+def get_rules_by_comment(comment):
+    rules = subprocess.check_output(
+        'sudo iptables -t nat -S',
         shell=True,
         text=True
     ).splitlines()
-    for rule in svc_rules:
-        if '--dport {} -j'.format(cluster_port) in rule:
-            return rule.split(' ')[-1]
-    raise ChainNotFoundError('Cluster chain not found')
+    for rule in rules:
+        if comment in rule:
+            return rule
+    return
 
 
-def forward(service_name, cluster_ip, cluster_port, forwarded_port):
-    
+def get_cluster_chain(namespace, service_name):
+    comment = '{}/{} cluster IP'.format(namespace, service_name)
+    svc_rule = get_rules_by_comment(comment)
+    if not svc_rule:
+        return
+    return svc_rule.split(' ')[-1]
+
+
+def forward(namespace, service_name, forward_port):
+    cluster_chain = ''
+    forward_rule_comment = "Port forwarded for service {}/{}".format(
+        namespace, service_name)
     try:
-        cluster_chain = get_cluster_chain(cluster_ip, cluster_port)
-        clusterip_forward_rule = subprocess.check_output(
-            'sudo iptables -t nat -S | grep "forwarded for {} {}:{}"'.format(
-                service_name, cluster_ip, cluster_port
-                ),
-            shell=True,
-            text=True
-        ).splitlines()[0]
-        if not cluster_chain in clusterip_forward_rule or not cluster_ip in clusterip_forward_rule:
-            clusterip_forward_rule = clusterip_forward_rule.replace('-A', '-D')
-            print(clusterip_forward_rule)
+        cluster_chain = get_cluster_chain(namespace, service_name)
+        forward_rule = get_rules_by_comment(forward_rule_comment)
+        if forward_rule:
+            if not cluster_chain or not cluster_chain in forward_rule or not forward_port in forward_rule:
+                delete_rule = 'sudo iptables -t nat ' + \
+                    forward_rule.replace('-A', '-D')
+                print("Running -> ", delete_rule)
+                subprocess.check_output(
+                    delete_rule,
+                    shell=True,
+                    text=True
+                )
+                return
+            else:
+                print("Rule exists, skipping -> ", forward_rule)
+        elif cluster_chain:
+            new_rule = 'sudo iptables -t nat -I PREROUTING -p tcp -m comment --comment "Port forwarded for service {}/{}" --dport {} -j {}'.format(
+                namespace, service_name, forward_port, cluster_chain
+            )
+            print("Running -> ", new_rule)
             subprocess.check_output(
-                "sudo iptables -t nat {}".format(clusterip_forward_rule),
+                new_rule,
                 shell=True,
                 text=True
             )
-            new_rule = 'sudo iptables -t nat -I PREROUTING -p tcp --dport {} -m comment --comment "forwarded for {} {}:{}" -j {}'.format(
-                forwarded_port, service_name,cluster_ip, cluster_port,
-                cluster_chain
-            )
-            print(new_rule)
-            subprocess.check_output(
-                new_rule,
-                shell=True, text=True
-            )
         else:
-            print("Valid rule | {} | exists, skipping".format(clusterip_forward_rule))
-    except subprocess.CalledProcessError:
-        print("Tables locked, skipping")
-        pass
-    except:
-        new_rule = 'sudo iptables -t nat -I PREROUTING -p tcp --dport {} -m comment --comment "forwarded for {} {}:{}" -j {}'.format(
-            forwarded_port, service_name,cluster_ip, cluster_port,
-            cluster_chain
-        )
-        print(new_rule)
-        subprocess.check_output(
-            new_rule,
-            shell=True, text=True
-        )
+            print("Cluster chain not found ", namespace, service_name, forward_port)
+    except Exception:
+        print("Iptables locked, skipping")
 
-service_name = os.environ.get('FORWARDED_SERVICE_NAME', 'nginx-service')
-cluster_ip = os.environ.get('FORWARD_CLUSTER_IP', '10.110.145.49')
-cluster_port = os.environ.get('FORWARD_CLUSTER_PORT', '30000')
-forwarded_port = os.environ.get('FORWARD_TO_PORT', '80')
+namespace, service_name, forwarded_port = sys.argv[1:]
 
-
-forward(service_name, cluster_ip, cluster_port, forwarded_port)
+forward(namespace, service_name, forwarded_port)
