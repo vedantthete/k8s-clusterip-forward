@@ -17,8 +17,9 @@ def get_cluster_chain(cluster_ip, cluster_port):
 
 
 def forward(service_name, cluster_ip, cluster_port, forwarded_port):
-    cluster_chain = get_cluster_chain(cluster_ip, cluster_port)
+    
     try:
+        cluster_chain = get_cluster_chain(cluster_ip, cluster_port)
         clusterip_forward_rule = subprocess.check_output(
             'sudo iptables -t nat -S | grep "forwarded for {} {}:{}"'.format(
                 service_name, cluster_ip, cluster_port
