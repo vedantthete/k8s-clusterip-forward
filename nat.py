@@ -116,6 +116,8 @@ try:
     rule.cleanup()
 except:
     pass
+if float(wait_for) < 0:
+    exit()
 while True:
     rule.create()
     sleep(float(wait_for) or 15)
