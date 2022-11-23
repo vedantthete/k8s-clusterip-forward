@@ -53,11 +53,12 @@ class Rule:
                     shell=True,
                     text=True
                 )
+                existing_rules.pop()
             except Exception as e:
                 if 'No chain' in e.output:
                     existing_rules.pop()
                 else:
-                    raise
+                    sleep(1)
 
     def create_rule(self, rule):
         self.cleanup()
@@ -111,7 +112,10 @@ class Rule:
 namespace, service_name, forwarded_port, wait_for = sys.argv[1:]
 
 rule = Rule(namespace, service_name, forwarded_port)
-
+try:
+    rule.cleanup()
+except:
+    pass
 while True:
     rule.create()
-    sleep(float(wait_for) or 1)
+    sleep(float(wait_for) or 15)
